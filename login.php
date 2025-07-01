@@ -154,7 +154,7 @@ if (isset($_COOKIE['remember_token']) && !isset($_SESSION['user_id'])) {
             $_SESSION['user_name'] = $user['nombre'];
             $_SESSION['user_email'] = $user['email'];
             $_SESSION['user_role'] = $user['nombre_rol'];            
-            header('Location: Permiso_Rol.php');
+            header('Location: dashboard.php');
             exit();
         }
     } catch (PDOException $e) {

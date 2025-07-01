@@ -17,10 +17,15 @@ if (!$data) {
     exit();
 }
 
-// Validar sesión y permiso general para seguridad/usuarios
-if (!isset($_SESSION['user_id']) || !hasPermission($pdo, $_SESSION['user_id'], 'Gestionar Seguridad')) {
-    echo json_encode(['success' => false, 'message' => 'No tienes permisos para realizar esta acción']);
-    exit();
+$action = $data['action'] ?? '';
+// Acciones públicas que no requieren sesión ni permisos
+$acciones_publicas = ['register_client_user'];
+
+if (!in_array($action, $acciones_publicas)) {
+    if (!isset($_SESSION['user_id']) || !hasPermission($pdo, $_SESSION['user_id'], 'Gestionar Seguridad')) {
+        echo json_encode(['success' => false, 'message' => 'No tienes permisos para realizar esta acción']);
+        exit();
+    }
 }
 
 $action = $data['action'] ?? '';
