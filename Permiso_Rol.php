@@ -33,6 +33,7 @@ $all_permisos_list = getAllPermisosList($pdo);
             <span class="icon-barber">✂️</span>
         </div>
         <div class="nav">
+            <a href="dashboard.php">Dashboard</a>
             <a href="Reg_Usuarios_Lista_Admin.php">Usuarios</a>
             <a href="Servicios.php">Servicios</a>
             <a href="#">Productos</a>
@@ -122,7 +123,7 @@ $all_permisos_list = getAllPermisosList($pdo);
                             <th>ID</th>
                             <th>Nombre del Permiso</th>
                             <th>Descripción</th>
-                            <th class="acciones">Acciones</th>
+                            <th class="acciones" style="text-align: right; width: 100px;">Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="permisosTableBody">
@@ -145,6 +146,30 @@ $all_permisos_list = getAllPermisosList($pdo);
         </div>
     </div>
 
+        <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-item">
+                <div class="footer-icon">
+                    <img src="https://img.icons8.com/?size=100&id=118557&format=png&color=000000" alt="Facebook" width="45" height="45">
+                </div>
+                <span>Los Últimos Serán Los Primeros</span>
+            </div>
+            <div class="footer-item">
+                <img src="https://img.icons8.com/?size=100&id=32323&format=png&color=000000" alt="Instagram" width="45" height="45">
+                <span>@hairsoft_oficial</span>
+            </div>
+            <div class="footer-item">
+                <div class="footer-icon">
+                    <img src="https://img.icons8.com/?size=100&id=16713&format=png&color=000000" alt="Teléfono" width="45" height="45">
+                </div>
+                <span>3755-713031</span>
+            </div>
+        </div>
+        <div class="address">
+            Avenida Libertador 928 - San Vicente - Misiones
+        </div>
+    </footer>
     <script>
         const allPermisos = <?php echo json_encode($all_permisos_list); ?>;
         const currentRoles = <?php echo json_encode($roles); ?>;
