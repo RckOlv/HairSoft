@@ -1,6 +1,7 @@
 <?php
 session_start();
-file_put_contents('debug.json', file_get_contents('php://input'));
+$rawInput = file_get_contents('php://input');
+file_put_contents('debug.json', $rawInput);
 require_once 'config/conexion.php';
 require_once 'permissions.php';
 
@@ -9,7 +10,17 @@ header('Content-Type: application/json');
 $pdo = getConnection();
 
 // Leer JSON recibido
-$data = json_decode(file_get_contents('php://input'), true);
+$data = json_decode($rawInput, true);
+
+// Si no hay datos JSON, intentar con $_POST o $_GET
+if (!$data) {
+    if (!empty($_POST)) {
+        $data = $_POST;
+    } elseif (!empty($_GET)) {
+        $data = $_GET;
+    }
+}
+
 file_put_contents('php://stderr', "Datos recibidos: " . print_r($data, true) . "\n");
 
 if (!$data) {
@@ -190,9 +201,12 @@ switch ($action) {
         $search = trim($data['search'] ?? '');
         $roles = getRolesWithPermissions($pdo);
         if (!empty($search)) {
-            $roles = array_filter($roles, function($role) use ($search) {
-                return stripos($role['nombre_rol'], $search) !== false ||
-                       stripos($role['descripcion'], $search) !== false;
+            $search_lower = mb_strtolower($search);
+            $roles = array_filter($roles, function($role) use ($search_lower) {
+                $nombre_rol = isset($role['nombre_rol']) ? mb_strtolower($role['nombre_rol']) : '';
+                $descripcion = isset($role['descripcion']) ? mb_strtolower($role['descripcion']) : '';
+                return strpos($nombre_rol, $search_lower) !== false ||
+                       strpos($descripcion, $search_lower) !== false;
             });
         }
         echo json_encode(['success' => true, 'data' => array_values($roles)]);
