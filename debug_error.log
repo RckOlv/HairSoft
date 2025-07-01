@@ -1,0 +1,9 @@
+Error obteniendo estadísticas: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'peluprueba.turnos' doesn't exist
+Error obteniendo estadísticas: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'peluprueba.turnos' doesn't exist
+Error obteniendo estadísticas: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'peluprueba.pagos' doesn't exist
+Error obteniendo estadísticas: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'peluprueba.pagos' doesn't exist
+Error obteniendo estadísticas: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'peluprueba.pagos' doesn't exist
+Error obteniendo estadísticas: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'ORDER BY fecha_registro DESC
+                LIMIT 3' at line 7
+Error obteniendo estadísticas: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'fecha_registro' in 'field list'
+Error obteniendo estadísticas: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'fecha_registro' in 'where clause'
