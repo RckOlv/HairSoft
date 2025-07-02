@@ -19,11 +19,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectEstado = document.getElementById('selectEstado');
     const inputPassword = document.getElementById('inputPassword');
     const inputConfirmarPassword = document.getElementById('inputConfirmarPassword');
+    const grupoSelectEstado = document.getElementById('grupoSelectEstado');
 
     const tituloModalUsuario = document.getElementById('tituloModalUsuario');
     const btnCambiarPassword = document.getElementById('btnCambiarPassword');
 
-    // Función para mostrar u ocultar campos de contraseña y ajustar botón
     function ocultarCamposPassword() {
         document.querySelectorAll('.grupo-password').forEach(el => el.style.display = 'none');
         inputPassword.value = '';
@@ -31,29 +31,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btnCambiarPassword.style.display = 'inline-block';
         btnCambiarPassword.textContent = 'Cambiar contraseña';
     }
+
     function mostrarCamposPassword() {
         document.querySelectorAll('.grupo-password').forEach(el => el.style.display = 'block');
         btnCambiarPassword.style.display = 'none';
-        // No limpiamos aquí para no borrar lo que pueda haber ingresado el usuario
     }
 
-    // Abrir modal para nuevo usuario
-    btnRegistrarUsuario.addEventListener('click', () => {
-        formUsuario.reset();
-        idUsuario.value = '';
-        tituloModalUsuario.textContent = 'Registrar Nuevo Usuario';
-
-        mostrarCamposPassword();
-
-        overlayModalUsuario.style.display = 'flex';
-    });
-
-    // Cerrar modal
-    btnCerrarModalUsuario.addEventListener('click', () => {
-        overlayModalUsuario.style.display = 'none';
-    });
-
-    // Función para llenar formulario con datos de fila para editar
     function llenarFormularioDesdeFila(fila) {
         idUsuario.value = fila.dataset.id;
         inputNombre.value = fila.dataset.nombre;
@@ -63,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
         selectTipoDoc.value = fila.dataset.tipoDoc;
         inputDocumento.value = fila.dataset.documento;
 
-        // Seleccionar rol por texto
         for (let opcion of selectRol.options) {
             if (opcion.text === fila.dataset.rol) {
                 opcion.selected = true;
@@ -76,13 +58,26 @@ document.addEventListener('DOMContentLoaded', () => {
         tituloModalUsuario.textContent = 'Editar Usuario';
 
         ocultarCamposPassword();
-
-        btnCambiarPassword.style.display = 'inline-block'; // botón visible al editar
+        btnCambiarPassword.style.display = 'inline-block';
+        grupoSelectEstado.style.display = 'block';
 
         overlayModalUsuario.style.display = 'flex';
     }
 
-    // Botón "Cambiar contraseña" que alterna campos de password en edición
+    btnRegistrarUsuario.addEventListener('click', () => {
+        formUsuario.reset();
+        idUsuario.value = '';
+        tituloModalUsuario.textContent = 'Registrar Nuevo Usuario';
+
+        mostrarCamposPassword();
+        grupoSelectEstado.style.display = 'none';
+        overlayModalUsuario.style.display = 'flex';
+    });
+
+    btnCerrarModalUsuario.addEventListener('click', () => {
+        overlayModalUsuario.style.display = 'none';
+    });
+
     btnCambiarPassword.addEventListener('click', () => {
         const gruposPassword = document.querySelectorAll('.grupo-password');
         const visible = gruposPassword[0].style.display === 'block';
@@ -98,7 +93,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Editar y eliminar usuario (delegación)
     cuerpoTablaUsuarios.addEventListener('click', e => {
         if (e.target.closest('.btnEditar')) {
             const fila = e.target.closest('tr');
@@ -111,23 +105,53 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Filtro de búsqueda en la tabla
-    inputBuscarUsuario.addEventListener('input', () => {
-        const filtro = inputBuscarUsuario.value.toLowerCase();
-        const filas = cuerpoTablaUsuarios.querySelectorAll('tr');
-        filas.forEach(fila => {
-            const nombre = fila.dataset.nombre.toLowerCase();
-            const apellido = fila.dataset.apellido.toLowerCase();
-            const email = fila.dataset.email.toLowerCase();
-            if(nombre.includes(filtro) || apellido.includes(filtro) || email.includes(filtro)) {
-                fila.style.display = '';
-            } else {
-                fila.style.display = 'none';
+    function buscarUsuarios() {
+        const search = inputBuscarUsuario.value.trim();
+
+        fetch('ajax_handler.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'list_users',
+                search: search
+            })
+        })
+        .then(resp => resp.json())
+        .then(data => {
+            if (data.success) {
+                cuerpoTablaUsuarios.innerHTML = '';
+                data.data.forEach(usuario => {
+                    const tr = document.createElement('tr');
+                    tr.dataset.id = usuario.id_usuario;
+                    tr.dataset.nombre = usuario.nombre;
+                    tr.dataset.apellido = usuario.apellido;
+                    tr.dataset.email = usuario.email;
+                    tr.dataset.telefono = usuario.telefono;
+                    tr.dataset.tipoDoc = usuario.tipo_documento;
+                    tr.dataset.documento = usuario.documento;
+                    tr.dataset.rol = usuario.id_rol;
+                    tr.dataset.estado = usuario.estado;
+
+                    tr.innerHTML = `
+                        <td>${usuario.nombre}</td>
+                        <td>${usuario.apellido}</td>
+                        <td>${usuario.email}</td>
+                        <td>${usuario.documento}</td>
+                        <td>${usuario.telefono}</td>
+                        <td>${usuario.estado}</td>
+                        <td>
+                            <button class="btnEditar">Editar</button>
+                            <button class="btnEliminar">Eliminar</button>
+                        </td>
+                    `;
+                    cuerpoTablaUsuarios.appendChild(tr);
+                });
             }
         });
-    });
+    }
 
-    // Enviar formulario para crear/editar usuario
+    inputBuscarUsuario.addEventListener('input', buscarUsuarios);
+
     formUsuario.addEventListener('submit', e => {
         e.preventDefault();
 
@@ -144,7 +168,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const confirmarPassword = inputConfirmarPassword.value;
 
         if(id === '') {
-            // Nuevo usuario: contraseña obligatoria y debe coincidir
             if(password === '') {
                 alert('La contraseña es obligatoria para un nuevo usuario.');
                 return;
@@ -154,14 +177,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
         } else {
-            // Edición: si ponen contraseña, debe coincidir; si no la ponen, no se cambia
             if(password !== '' && password !== confirmarPassword) {
                 alert('Las contraseñas no coinciden.');
                 return;
             }
         }
-        
-        console.log(id);
+
         const dataToSend = {
             action: id === '' ? 'create_user' : 'update_user',
             id_usuario: id,
@@ -174,11 +195,10 @@ document.addEventListener('DOMContentLoaded', () => {
             id_rol: rol,
             estado: estado,
         };
-        
+
         if (password !== '') {
             dataToSend.password = password;
         }
-
 
         fetch('ajax_handler.php', {
             method: 'POST',
@@ -197,7 +217,6 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(() => alert('Error en la comunicación con el servidor.'));
     });
 
-    // Función para eliminar usuario via AJAX
     function eliminarUsuario(id) {
         if(!id) return;
 
@@ -225,7 +244,6 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(() => alert('Error en la comunicación con el servidor.'));
     }
 
-    // Botón cerrar sesión
     document.getElementById('btnCerrarSesion').addEventListener('click', () => {
         window.location.href = 'logout.php';
     });

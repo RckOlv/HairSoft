@@ -290,7 +290,6 @@ switch ($action) {
         $tipo_documento = $data['tipo_documento'] ?? '';
         $documento = trim($data['documento'] ?? '');
         $id_rol = $data['id_rol'] ?? '';
-        $estado = $data['estado'] ?? '';
         $password = $data['password'] ?? '';
 
         if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
@@ -298,9 +297,10 @@ switch ($action) {
         if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
         if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
         if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
-        if (!$estado) { echo json_encode(['success' => false, 'message' => 'Falta estado']); break; }
         if (!$password) { echo json_encode(['success' => false, 'message' => 'Falta password']); break; }
         if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
+
+        $estado = 'activo'; // Fuerza el estado a 'activo' al crear
 
         // Verificar duplicados
         $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE email = ? OR documento = ?");
@@ -386,19 +386,28 @@ switch ($action) {
 
     case 'list_users':
         $search = $data['search'] ?? '';
+        $searchType = $data['searchType'] ?? ''; // Nuevo: tipo de búsqueda ('nombre', 'documento' o vacío)
         $page = max(1, intval($data['page'] ?? 1));
         $limit = 10;
         $offset = ($page - 1) * $limit;
 
         $params = [];
         $where = "";
+
         if ($search) {
-            $where = "WHERE nombre ILIKE ? OR apellido ILIKE ? OR email ILIKE ?";
-            $like = "%$search%";
-            $params = [$like, $like, $like];
+            if ($searchType === 'nombre') {
+                $where = "WHERE nombre LIKE ?";
+                $params = ["%$search%"];
+            } elseif ($searchType === 'documento') {
+                $where = "WHERE documento LIKE ?";
+                $params = ["%$search%"];
+            } else {
+                // Si no se especifica tipo, buscar en ambos
+                $where = "WHERE nombre LIKE ? OR documento LIKE ?";
+                $params = ["%$search%", "%$search%"];
+            }
         }
 
-        // Concatenar LIMIT y OFFSET directamente para evitar problemas con PDO y LIMIT
         $query = "SELECT * FROM usuarios $where ORDER BY id_usuario DESC LIMIT $limit OFFSET $offset";
         $stmt = $pdo->prepare($query);
         $stmt->execute($params);
@@ -416,6 +425,7 @@ switch ($action) {
             'limit' => $limit
         ]);
         break;
+
     //Registrar usuario cliente desde formulario en el index.
     case 'register_client_user':
     $nombre = trim($data['nombre'] ?? '');
@@ -469,26 +479,27 @@ switch ($action) {
 
     // ----------- SERVICIOS ---------------
     case 'create_service':
-        $nombre = trim($data['nombre'] ?? '');
-        $descripcion = trim($data['descripcion'] ?? '');
-        $precio = floatval($data['precio'] ?? 0);
-        $duracion = floatval($data['duracion'] ?? 0);
-        $categoria = trim($data['categoria'] ?? '');
-        $estado = $data['estado'] ?? 'Activo';
-        
-        if (empty($nombre)) {
-            echo json_encode(['success' => false, 'message' => 'El nombre del servicio es obligatorio']);
-            break;
-        }
-        try {
-            $stmt = $pdo->prepare("INSERT INTO servicios (nombre, descripcion, precio, duracion, categoria, estado) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$nombre, $descripcion, $precio, $duracion, $categoria, $estado]);
-            echo json_encode(['success' => true, 'message' => 'Servicio creado exitosamente']);
-        } catch (PDOException $e) {
-            error_log("Error creando servicio: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al crear servicio']);
-        }
+    $nombre = trim($data['nombre'] ?? '');
+    $descripcion = trim($data['descripcion'] ?? '');
+    $precio = floatval($data['precio'] ?? 0);
+    $duracion = floatval($data['duracion'] ?? 0);
+    $categoria = trim($data['categoria'] ?? '');
+    $estado = 'activo'; // Forzar que el estado sea 'activo' al crear
+
+    if (empty($nombre)) {
+        echo json_encode(['success' => false, 'message' => 'El nombre del servicio es obligatorio']);
         break;
+    }
+    try {
+        $stmt = $pdo->prepare("INSERT INTO servicios (nombre, descripcion, precio, duracion, categoria, estado) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$nombre, $descripcion, $precio, $duracion, $categoria, $estado]);
+        echo json_encode(['success' => true, 'message' => 'Servicio creado exitosamente']);
+    } catch (PDOException $e) {
+        error_log("Error creando servicio: " . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Error al crear servicio']);
+    }
+    break;
+
 
     case 'update_service':
         $id = $data['id'] ?? 0;

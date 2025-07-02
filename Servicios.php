@@ -127,7 +127,7 @@ $servicios = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <label for="service-price">Precio ($): <span class="required">*</span></label>
                         <input type="number" id="service-price" class="form-input" min="0" step="0.01" required>
                     </div>
-                    <div class="form-group">
+                    <div class="form-group" id="grupoSelectEstadoServicio">
                         <label for="service-status">Estado: <span class="required">*</span></label>
                         <select id="service-status" class="form-select" required>
                             <option value="activo">Activo</option>

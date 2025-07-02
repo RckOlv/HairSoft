@@ -172,7 +172,7 @@ $usuarios = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" id= "grupoSelectEstado">
                             <label for="selectEstado">Estado: <span class="required">*</span></label>
                             <select id="selectEstado" class="form-select" required>
                                 <option value="activo">Activo</option>

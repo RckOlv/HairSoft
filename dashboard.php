@@ -144,7 +144,7 @@ function obtenerIconoActividad($tipo) {
             <span><?php echo htmlspecialchars($user_name); ?></span>
             <small><?php echo htmlspecialchars($user_role); ?></small>
             <div class="online-indicator"></div>
-            <button class="logout-btn" onclick="cerrarSesion()">Cerrar Sesión</button>
+            <button class="logout-btn" onclick="window.location.href='logout.php'">Cerrar Sesión</button>
         </div>
     </div>
 
