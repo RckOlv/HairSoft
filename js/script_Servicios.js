@@ -231,6 +231,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Validar que el nombre no contenga números
+            if (!/^[a-zA-Z\s]+$/.test(serviceData.nombre)) {
+                showNotification('El nombre del servicio no debe contener números', 'error');
+                return;
+            }
+
             const serviceId = serviceRegistrationForm.dataset.id;
             if (serviceId) {
                 await updateService(parseInt(serviceId), serviceData);

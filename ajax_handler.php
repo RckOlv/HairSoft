@@ -480,6 +480,10 @@ switch ($action) {
     // ----------- SERVICIOS ---------------
     case 'create_service':
     $nombre = trim($data['nombre'] ?? '');
+        if (!preg_match('/^[a-zA-Z\s]+$/', $nombre)) {
+            echo json_encode(['success' => false, 'message' => 'El nombre del servicio no debe contener números ni caracteres especiales.']);
+        break;
+        }
     $descripcion = trim($data['descripcion'] ?? '');
     $precio = floatval($data['precio'] ?? 0);
     $duracion = floatval($data['duracion'] ?? 0);
@@ -504,6 +508,10 @@ switch ($action) {
     case 'update_service':
         $id = $data['id'] ?? 0;
         $nombre = trim($data['nombre'] ?? '');
+        if (!preg_match('/^[a-zA-Z\s]+$/', $nombre)) {
+            echo json_encode(['success' => false, 'message' => 'El nombre del servicio no debe contener números ni caracteres especiales.']);
+        break;
+        }
         $descripcion = trim($data['descripcion'] ?? '');
         $precio = floatval($data['precio'] ?? 0);
         $duracion = floatval($data['duracion'] ?? 0);
