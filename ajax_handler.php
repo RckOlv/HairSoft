@@ -283,88 +283,116 @@ switch ($action) {
 
     // ----------- USUARIOS ---------------
     case 'create_user':
-        $nombre = trim($data['nombre'] ?? '');
-        $apellido = trim($data['apellido'] ?? '');
-        $email = trim($data['email'] ?? '');
-        $telefono = trim($data['telefono'] ?? '');
-        $tipo_documento = $data['tipo_documento'] ?? '';
-        $documento = trim($data['documento'] ?? '');
-        $id_rol = $data['id_rol'] ?? '';
-        $password = $data['password'] ?? '';
+    $nombre = trim($data['nombre'] ?? '');
+    $apellido = trim($data['apellido'] ?? '');
+    $email = trim($data['email'] ?? '');
+    $telefono = trim($data['telefono'] ?? '');
+    $tipo_documento = $data['tipo_documento'] ?? '';
+    $documento = trim($data['documento'] ?? '');
+    $id_rol = $data['id_rol'] ?? '';
+    $password = $data['password'] ?? '';
 
-        if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
-        if (!$email) { echo json_encode(['success' => false, 'message' => 'Falta email']); break; }
-        if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
-        if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
-        if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
-        if (!$password) { echo json_encode(['success' => false, 'message' => 'Falta password']); break; }
-        if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
+    if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
+    if (!$email) { echo json_encode(['success' => false, 'message' => 'Falta email']); break; }
+    if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
+    if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
+    if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
+    if (!$password) { echo json_encode(['success' => false, 'message' => 'Falta password']); break; }
+    if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
 
-        $estado = 'activo'; // Fuerza el estado a 'activo' al crear
+    // Validaciones de formato
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => 'El email no tiene un formato válido.']); break;
+    }
+    if (!preg_match('/^\d{6,12}$/', $documento)) {
+        echo json_encode(['success' => false, 'message' => 'Número de documento inválido.']); break;
+    }
+    if (!empty($telefono) && !preg_match('/^\d{6,15}$/', $telefono)) {
+        echo json_encode(['success' => false, 'message' => 'Número de teléfono inválido.']); break;
+    }
+    if (!empty($password) && strlen($password) < 6) {
+        echo json_encode(['success' => false, 'message' => 'La contraseña debe tener al menos 6 caracteres.']); break;
+    }
 
-        // Verificar duplicados
-        $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE email = ? OR documento = ?");
-        $stmtCheck->execute([$email, $documento]);
-        if ($stmtCheck->fetchColumn() > 0) {
-            echo json_encode(['success' => false, 'message' => 'Email o documento ya registrado.']);
-            break;
-        }
+    $estado = 'activo'; // Fuerza el estado a 'activo' al crear
 
-        try {
+    // Verificar duplicados
+    $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE email = ? OR documento = ?");
+    $stmtCheck->execute([$email, $documento]);
+    if ($stmtCheck->fetchColumn() > 0) {
+        echo json_encode(['success' => false, 'message' => 'Email o documento ya registrado.']);
+        break;
+    }
+
+    try {
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+        $stmt = $pdo->prepare("INSERT INTO usuarios (nombre, apellido, email, telefono, tipo_documento, documento, id_rol, estado, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$nombre, $apellido, $email, $telefono, $tipo_documento, $documento, $id_rol, $estado, $hashedPassword]);
+        echo json_encode(['success' => true, 'message' => 'Usuario creado exitosamente.']);
+    } catch (PDOException $e) {
+        error_log("Error creando usuario: " . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Error al crear usuario.']);
+    }
+    break;
+
+case 'update_user':
+    $id_usuario = $data['id_usuario'] ?? '';
+    $nombre = trim($data['nombre'] ?? '');
+    $apellido = trim($data['apellido'] ?? '');
+    $email = trim($data['email'] ?? '');
+    $telefono = trim($data['telefono'] ?? '');
+    $tipo_documento = $data['tipo_documento'] ?? '';
+    $documento = trim($data['documento'] ?? '');
+    $id_rol = $data['id_rol'] ?? '';
+    $estado = $data['estado'] ?? '';
+    $password = $data['password'] ?? '';
+
+    if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
+    if (!$email) { echo json_encode(['success' => false, 'message' => 'Falta email']); break; }
+    if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
+    if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
+    if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
+    if (!$estado) { echo json_encode(['success' => false, 'message' => 'Falta estado']); break; }
+    if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
+
+    // Validaciones de formato
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => 'El email no tiene un formato válido.']); break;
+    }
+    if (!preg_match('/^\d{6,12}$/', $documento)) {
+        echo json_encode(['success' => false, 'message' => 'Número de documento inválido.']); break;
+    }
+    if (!empty($telefono) && !preg_match('/^\d{6,15}$/', $telefono)) {
+        echo json_encode(['success' => false, 'message' => 'Número de teléfono inválido.']); break;
+    }
+    if (!empty($password) && strlen($password) < 6) {
+        echo json_encode(['success' => false, 'message' => 'La contraseña debe tener al menos 6 caracteres.']); break;
+    }
+
+    // Verificar duplicados en otros usuarios
+    $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE (email = ? OR documento = ?) AND id_usuario != ?");
+    $stmtCheck->execute([$email, $documento, $id_usuario]);
+    if ($stmtCheck->fetchColumn() > 0) {
+        echo json_encode(['success' => false, 'message' => 'Email o documento ya registrado en otro usuario.']);
+        break;
+    }
+
+    try {
+        error_log("Datos recibidos: nombre='$nombre', apellido='$apellido', correo='$email', tipo_documento='$tipo_documento', documento='$documento', id_rol='$id_rol', estado='$estado', password='$password'");
+        if ($password) {
             $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre, apellido, email, telefono, tipo_documento, documento, id_rol, estado, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$nombre, $apellido, $email, $telefono, $tipo_documento, $documento, $id_rol, $estado, $hashedPassword]);
-            echo json_encode(['success' => true, 'message' => 'Usuario creado exitosamente.']);
-        } catch (PDOException $e) {
-            error_log("Error creando usuario: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al crear usuario.']);
+            $stmt = $pdo->prepare("UPDATE usuarios SET nombre=?, apellido=?, email=?, telefono=?, tipo_documento=?, documento=?, id_rol=?, estado=?, password=? WHERE id_usuario=?");
+            $stmt->execute([$nombre, $apellido, $email, $telefono, $tipo_documento, $documento, $id_rol, $estado, $hashedPassword, $id_usuario]);
+        } else {
+            $stmt = $pdo->prepare("UPDATE usuarios SET nombre=?, apellido=?, email=?, telefono=?, tipo_documento=?, documento=?, id_rol=?, estado=? WHERE id_usuario=?");
+            $stmt->execute([$nombre, $apellido, $email, $telefono, $tipo_documento, $documento, $id_rol, $estado, $id_usuario]);
         }
-        break;
-
-    case 'update_user':
-        $id_usuario = $data['id_usuario'] ?? '';
-        $nombre = trim($data['nombre'] ?? '');
-        $apellido = trim($data['apellido'] ?? '');
-        $email = trim($data['email'] ?? '');
-        $telefono = trim($data['telefono'] ?? '');
-        $tipo_documento = $data['tipo_documento'] ?? '';
-        $documento = trim($data['documento'] ?? '');
-        $id_rol = $data['id_rol'] ?? '';
-        $estado = $data['estado'] ?? '';
-        $password = $data['password'] ?? '';
-
-        if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
-        if (!$email) { echo json_encode(['success' => false, 'message' => 'Falta email']); break; }
-        if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
-        if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
-        if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
-        if (!$estado) { echo json_encode(['success' => false, 'message' => 'Falta estado']); break; }
-        if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
-
-        // Verificar duplicados en otros usuarios
-        $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE (email = ? OR documento = ?) AND id_usuario != ?");
-        $stmtCheck->execute([$email, $documento, $id_usuario]);
-        if ($stmtCheck->fetchColumn() > 0) {
-            echo json_encode(['success' => false, 'message' => 'Email o documento ya registrado en otro usuario.']);
-            break;
-        }
-
-        try {
-            error_log("Datos recibidos: nombre='$nombre', apellido='$apellido', correo='$email', tipo_documento='$tipo_documento', documento='$documento', id_rol='$id_rol', estado='$estado', password='$password'");
-            if ($password) {
-                $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("UPDATE usuarios SET nombre=?, apellido=?, email=?, telefono=?, tipo_documento=?, documento=?, id_rol=?, estado=?, password=? WHERE id_usuario=?");
-                $stmt->execute([$nombre, $apellido, $email, $telefono, $tipo_documento, $documento, $id_rol, $estado, $hashedPassword, $id_usuario]);
-            } else {
-                $stmt = $pdo->prepare("UPDATE usuarios SET nombre=?, apellido=?, email=?, telefono=?, tipo_documento=?, documento=?, id_rol=?, estado=? WHERE id_usuario=?");
-                $stmt->execute([$nombre, $apellido, $email, $telefono, $tipo_documento, $documento, $id_rol, $estado, $id_usuario]);
-            }
-            echo json_encode(['success' => true, 'message' => 'Usuario actualizado exitosamente.']);
-        } catch (PDOException $e) {
-            error_log("Error actualizando usuario: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al actualizar usuario.', 'error' => $e->getMessage()]);
-        }
-        break;
+        echo json_encode(['success' => true, 'message' => 'Usuario actualizado exitosamente.']);
+    } catch (PDOException $e) {
+        error_log("Error actualizando usuario: " . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Error al actualizar usuario.', 'error' => $e->getMessage()]);
+    }
+    break;
 
     case 'delete_user':
         $id_usuario = $data['id_usuario'] ?? '';

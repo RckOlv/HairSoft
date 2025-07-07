@@ -153,69 +153,101 @@ document.addEventListener('DOMContentLoaded', () => {
     inputBuscarUsuario.addEventListener('input', buscarUsuarios);
 
     formUsuario.addEventListener('submit', e => {
-        e.preventDefault();
+    e.preventDefault();
 
-        const id = idUsuario.value.trim();
-        const nombre = inputNombre.value.trim();
-        const apellido = inputApellido.value.trim();
-        const email = inputEmail.value.trim();
-        const telefono = inputTelefono.value.trim();
-        const tipoDoc = selectTipoDoc.value;
-        const documento = inputDocumento.value.trim();
-        const rol = selectRol.value;
-        const estado = selectEstado.value;
-        const password = inputPassword.value;
-        const confirmarPassword = inputConfirmarPassword.value;
+    const id = idUsuario.value.trim();
+    const nombre = inputNombre.value.trim();
+    const apellido = inputApellido.value.trim();
+    const email = inputEmail.value.trim();
+    const telefono = inputTelefono.value.trim();
+    const tipoDoc = selectTipoDoc.value;
+    const documento = inputDocumento.value.trim();
+    const rol = selectRol.value;
+    const estado = selectEstado.value;
+    const password = inputPassword.value;
+    const confirmarPassword = inputConfirmarPassword.value;
 
-        if(id === '') {
-            if(password === '') {
-                alert('La contraseña es obligatoria para un nuevo usuario.');
-                return;
-            }
-            if(password !== confirmarPassword) {
-                alert('Las contraseñas no coinciden.');
-                return;
-            }
+    // Validaciones
+    if (!/^[a-zA-ZÀ-ÿ\s]+$/.test(nombre)) {
+        alert('El nombre solo puede contener letras y espacios.');
+        return;
+    }
+
+    if (!/^[a-zA-ZÀ-ÿ\s]+$/.test(apellido)) {
+        alert('El apellido solo puede contener letras y espacios.');
+        return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        alert('Ingrese un correo electrónico válido.');
+        return;
+    }
+
+    if (telefono && !/^[\d\s\+\-]+$/.test(telefono)) {
+        alert('El teléfono solo puede contener números, espacios, "+" o "-".');
+        return;
+    }
+
+    if (!/^\d+$/.test(documento)) {
+        alert('El documento debe contener solo números.');
+        return;
+    }
+
+    if (rol === '') {
+        alert('Debe seleccionar un rol.');
+        return;
+    }
+
+    if (id === '') {
+        if (password === '') {
+            alert('La contraseña es obligatoria para un nuevo usuario.');
+            return;
+        }
+        if (password !== confirmarPassword) {
+            alert('Las contraseñas no coinciden.');
+            return;
+        }
+    } else {
+        if (password !== '' && password !== confirmarPassword) {
+            alert('Las contraseñas no coinciden.');
+            return;
+        }
+    }
+
+    const dataToSend = {
+        action: id === '' ? 'create_user' : 'update_user',
+        id_usuario: id,
+        nombre: nombre,
+        apellido: apellido,
+        email: email,
+        telefono: telefono,
+        tipo_documento: tipoDoc,
+        documento: documento,
+        id_rol: rol,
+        estado: estado,
+    };
+
+    if (password !== '') {
+        dataToSend.password = password;
+    }
+
+    fetch('ajax_handler.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dataToSend)
+    })
+    .then(resp => resp.json())
+    .then(data => {
+        if(data.success) {
+            alert(data.message);
+            location.reload();
         } else {
-            if(password !== '' && password !== confirmarPassword) {
-                alert('Las contraseñas no coinciden.');
-                return;
-            }
+            alert('Error: ' + data.message);
         }
+    })
+    .catch(() => alert('Error en la comunicación con el servidor.'));
+});
 
-        const dataToSend = {
-            action: id === '' ? 'create_user' : 'update_user',
-            id_usuario: id,
-            nombre: nombre,
-            apellido: apellido,
-            email: email,
-            telefono: telefono,
-            tipo_documento: tipoDoc,
-            documento: documento,
-            id_rol: rol,
-            estado: estado,
-        };
-
-        if (password !== '') {
-            dataToSend.password = password;
-        }
-
-        fetch('ajax_handler.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(dataToSend)
-        })
-        .then(resp => resp.json())
-        .then(data => {
-            if(data.success) {
-                alert(data.message);
-                location.reload();
-            } else {
-                alert('Error: ' + data.message);
-            }
-        })
-        .catch(() => alert('Error en la comunicación con el servidor.'));
-    });
 
     function eliminarUsuario(id) {
         if(!id) return;
