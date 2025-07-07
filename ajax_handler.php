@@ -1,15 +1,32 @@
 <?php
+file_put_contents('debug.json', file_get_contents('php://input'));
+
+require_once 'config/conexion.php';
+require_once 'permissions.php';
+
 header('Content-Type: application/json');
 
-try {
-    // Supongo que ya tenés la conexión PDO en $pdo
-    // $pdo = new PDO(...);
-} catch (PDOException $e) {
-    echo json_encode(['success' => false, 'message' => 'Error de conexión a la base de datos.']);
-    exit;
+$pdo = getConnection();
+
+// Leer JSON recibido
+$rawInput = file_get_contents('php://input');
+$data = json_decode($rawInput, true);
+
+// Si no hay datos JSON, intentar con $_POST o $_GET
+if (!$data) {
+    if (!empty($_POST)) {
+        $data = $_POST;
+    } elseif (!empty($_GET)) {
+        $data = $_GET;
+    }
 }
 
-$data = $_POST;
+file_put_contents('php://stderr', "Datos recibidos: " . print_r($data, true) . "\n");
+
+if (!$data) {
+    echo json_encode(['success' => false, 'message' => 'Datos inválidos o no enviados en formato JSON']);
+    exit();
+}
 
 $action = $data['action'] ?? '';
 
