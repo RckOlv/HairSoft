@@ -162,6 +162,19 @@ function saveRole(roleId) {
     const form = document.getElementById('roleForm');
     const formData = new FormData(form);
     
+    // Validaciones previas
+    const nombre = formData.get('nombre')?.trim() ?? '';
+    const descripcion = formData.get('descripcion')?.trim() ?? '';
+    
+    if (nombre.length < 3 || nombre.length > 50) {
+        showMessage('El nombre del rol debe tener entre 3 y 50 caracteres.', 'error');
+        return;
+    }
+    if (descripcion.length > 150) {
+        showMessage('La descripción del rol no debe superar los 150 caracteres.', 'error');
+        return;
+    }
+
     if (roleId) {
         formData.append('action', 'update_role');
         formData.append('id', roleId);
@@ -296,6 +309,19 @@ function loadPermisoData(permisoId) {
 function savePermiso(permisoId) {
     const form = document.getElementById('permisoForm');
     const formData = new FormData(form);
+    
+    // Validaciones previas
+    const nombre = formData.get('nombre')?.trim() ?? '';
+    const descripcion = formData.get('descripcion')?.trim() ?? '';
+    
+    if (nombre.length < 3 || nombre.length > 50) {
+        showMessage('El nombre del permiso debe tener entre 3 y 50 caracteres.', 'error');
+        return;
+    }
+    if (descripcion.length > 150) {
+        showMessage('La descripción del permiso no debe superar los 150 caracteres.', 'error');
+        return;
+    }
     
     if (permisoId) {
         formData.append('action', 'update_permiso');
