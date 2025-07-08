@@ -35,6 +35,7 @@ $usuarios = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="header">
         <div class="logo">HairSoft <span class="icon-barber">✂️</span></div>
         <div class="nav">
+            <a href="dashboard.php">Dashboard</a>
             <a href="usuarios.php" class="active">Usuarios</a>
             <a href="Servicios.php">Servicios</a>
             <a href="#">Productos</a>

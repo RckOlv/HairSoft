@@ -1,6 +1,7 @@
 <?php
-file_put_contents('debug.json', file_get_contents('php://input'));
-
+session_start();
+$rawInput = file_get_contents('php://input');
+file_put_contents('debug.json', $rawInput);
 require_once 'config/conexion.php';
 require_once 'permissions.php';
 
@@ -9,7 +10,6 @@ header('Content-Type: application/json');
 $pdo = getConnection();
 
 // Leer JSON recibido
-$rawInput = file_get_contents('php://input');
 $data = json_decode($rawInput, true);
 
 // Si no hay datos JSON, intentar con $_POST o $_GET
@@ -29,10 +29,301 @@ if (!$data) {
 }
 
 $action = $data['action'] ?? '';
+// Acciones públicas que no requieren sesión ni permisos
+$acciones_publicas = ['register_client_user'];
+
+if (!in_array($action, $acciones_publicas)) {
+    if (!isset($_SESSION['user_id']) || !hasPermission($pdo, $_SESSION['user_id'], 'Gestionar Seguridad')) {
+        echo json_encode(['success' => false, 'message' => 'No tienes permisos para realizar esta acción']);
+        exit();
+    }
+}
+
+$action = $data['action'] ?? '';
 
 switch ($action) {
+   // ----------- ESTADÍSTICAS DASHBOARD ----------------
+    case 'get_dashboard_stats':
+        try {
+            // Contar usuarios activos (estado en minúsculas 'activo')
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE estado = 'activo'");
+            $stmt->execute();
+            $total_usuarios = $stmt->fetchColumn();
 
-    // --- Crear usuario ---
+            // Contar servicios activos
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM servicios WHERE estado = 'activo'");
+            $stmt->execute();
+            $total_servicios = $stmt->fetchColumn();
+
+            // Como no existe la tabla 'turnos', ponemos 0
+            $turnos_hoy = 0;
+
+            // Como no existe la tabla 'pagos', ponemos 0
+            $ingresos_mensuales = 0;
+
+            // Obtener actividad reciente
+            $actividad_reciente = [];
+
+            // Usuarios registrados en los últimos 7 días
+            $stmt = $pdo->prepare("
+                SELECT 
+                    'usuario_nuevo' as tipo,
+                    CONCAT('Nuevo usuario registrado: ', nombre, ' ', apellido) as mensaje,
+                    created_at as fecha
+                FROM usuarios 
+                WHERE created_at >= CURRENT_DATE - INTERVAL 7 DAY
+                ORDER BY created_at DESC
+                LIMIT 3
+            ");
+            $stmt->execute();
+            $usuarios_nuevos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $actividad_reciente = array_merge($actividad_reciente, $usuarios_nuevos);
+
+           
+            try {
+                $stmt = $pdo->prepare("
+                    SELECT 
+                        'servicio_actualizado' as tipo,
+                        CONCAT('Servicio actualizado: \"', nombre, '\"') as mensaje,
+                        created_at as fecha
+                    FROM servicios 
+                    WHERE created_at >= CURRENT_DATE - INTERVAL 7 DAY
+                    ORDER BY created_at DESC
+                    LIMIT 2
+                ");
+                $stmt->execute();
+                $servicios_actualizados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $actividad_reciente = array_merge($actividad_reciente, $servicios_actualizados);
+            } catch (PDOException $e) {
+                // Si no existe el campo fecha_actualizacion, continuar sin error
+            }
+
+            // Ordenar actividad por fecha más reciente
+            usort($actividad_reciente, function($a, $b) {
+                return strtotime($b['fecha']) - strtotime($a['fecha']);
+            });
+
+            // Limitar a 5 elementos
+            $actividad_reciente = array_slice($actividad_reciente, 0, 5);
+
+            echo json_encode([
+                'success' => true,
+                'data' => [
+                    'usuarios' => $total_usuarios,
+                    'servicios' => $total_servicios,
+                    'turnos' => $turnos_hoy,
+                    'ingresos' => $ingresos_mensuales,
+                    'actividad_reciente' => $actividad_reciente
+                ]
+            ]);
+        } catch (PDOException $e) {
+            file_put_contents('debug_error.log', "Error obteniendo estadísticas: " . $e->getMessage() . "\n", FILE_APPEND);
+            echo json_encode([
+                 'success' => false, 
+                 'message' => 'Error al obtener estadísticas',
+                 'data' => [
+                 'usuarios' => 0,
+                 'servicios' => 0,
+                 'turnos' => 0,
+                 'ingresos' => 0,
+                 'actividad_reciente' => []
+            ]]);
+        }
+        break;
+
+    // ----------- ROLES ----------------
+    case 'create_role':
+        $nombre = trim($data['nombre'] ?? '');
+        $descripcion = trim($data['descripcion'] ?? '');
+        $permisos = $data['permisos'] ?? [];
+        if (empty($nombre)) {
+            echo json_encode(['success' => false, 'message' => 'El nombre del rol es obligatorio']);
+            break;
+        }
+         if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
+         if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $nombre)) {
+            echo json_encode(['success' => false, 'message' => 'El nombre solo debe contener letras y espacios']); break;
+        }
+
+        if (!$descripcion) { echo json_encode(['success' => false, 'message' => 'Falta descripción']); break; }
+
+        // Verificar si el rol ya existe
+        $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM roles WHERE nombre_rol = ?");
+        $stmtCheck->execute([$nombre]);
+        if ($stmtCheck->fetchColumn() > 0) {
+            echo json_encode(['success' => false, 'message' => 'El rol ya existe']);
+            break;
+        }
+
+        try {
+            $stmt = $pdo->prepare("INSERT INTO roles (nombre_rol, descripcion) VALUES (?, ?)");
+            $stmt->execute([$nombre, $descripcion]);
+            $roleId = $pdo->lastInsertId();
+
+            // Insertar permisos asociados al rol
+            if (!empty($permisos)) {
+                foreach ($permisos as $permiso) {
+                    $stmtPermiso = $pdo->prepare("INSERT INTO roles_permisos (id_rol, id_permiso) VALUES (?, ?)");
+                    $stmtPermiso->execute([$roleId, $permiso]);
+                }
+            }
+
+            echo json_encode(['success' => true, 'message' => 'Rol creado exitosamente']);
+        } catch (PDOException $e) {
+            error_log("Error creando rol: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Error al crear el rol']);
+        }
+
+    case 'update_role':
+        $id = $data['id'] ?? 0;
+        $nombre = trim($data['nombre'] ?? '');
+        $descripcion = trim($data['descripcion'] ?? '');
+        $permisos = $data['permisos'] ?? [];
+        if (empty($nombre) || $id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
+            break;
+        }
+        if (updateRole($pdo, $id, $nombre, $descripcion, $permisos)) {
+            echo json_encode(['success' => true, 'message' => 'Rol actualizado exitosamente']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Error al actualizar el rol']);
+        }
+        break;
+
+    case 'delete_role':
+        $id = $data['id'] ?? 0;
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID inválido']);
+            break;
+        }
+        // Verificar si el rol tiene usuarios asignados
+        $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE id_rol = ?");
+        $stmtCheck->execute([$id]);
+        if ($stmtCheck->fetchColumn() > 0) {
+            echo json_encode(['success' => false, 'message' => 'No se puede eliminar el rol porque tiene usuarios asignados.']);
+            break;
+        }
+        if (deleteRole($pdo, $id)) {
+            echo json_encode(['success' => true, 'message' => 'Rol eliminado exitosamente']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Error al eliminar el rol.']);
+        }
+        break;
+
+    case 'get_role':
+        $id = $data['id'] ?? 0;
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID inválido']);
+            break;
+        }
+        $role = getRoleById($pdo, $id);
+        if ($role) {
+            echo json_encode(['success' => true, 'data' => $role]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Rol no encontrado']);
+        }
+        break;
+
+    case 'search_roles':
+        $search = trim($data['search'] ?? '');
+        $roles = getRolesWithPermissions($pdo);
+        if (!empty($search)) {
+            $search_lower = mb_strtolower($search);
+            $roles = array_filter($roles, function($role) use ($search_lower) {
+                $nombre_rol = isset($role['nombre_rol']) ? mb_strtolower($role['nombre_rol']) : '';
+                $descripcion = isset($role['descripcion']) ? mb_strtolower($role['descripcion']) : '';
+                return strpos($nombre_rol, $search_lower) !== false ||
+                       strpos($descripcion, $search_lower) !== false;
+            });
+        }
+        echo json_encode(['success' => true, 'data' => array_values($roles)]);
+        break;
+
+    // ----------- PERMISOS ---------------
+    case 'create_permiso':
+        $nombre = trim($data['nombre'] ?? '');
+        $descripcion = trim($data['descripcion'] ?? '');
+       if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
+       if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $nombre)) {
+        echo json_encode(['success' => false, 'message' => 'El nombre solo debe contener letras y espacios']); break;
+        }
+
+        if (!$descripcion) { echo json_encode(['success' => false, 'message' => 'Falta descripción']); break; }
+
+        break;
+
+        // Verificar si el permiso ya existe
+        $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM permisos WHERE nombre = ?");
+        $stmtCheck->execute([$nombre]);
+        if ($stmtCheck->fetchColumn() > 0) {
+            echo json_encode(['success' => false, 'message' => 'El permiso ya existe']);
+            break;
+        }
+
+        try {
+            $stmt = $pdo->prepare("INSERT INTO permisos (nombre, descripcion) VALUES (?, ?)");
+            $stmt->execute([$nombre, $descripcion]);
+            echo json_encode(['success' => true, 'message' => 'Permiso creado exitosamente']);
+        } catch (PDOException $e) {
+            error_log("Error creando permiso: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Error al crear el permiso']);
+        }
+
+    case 'update_permiso':
+        $id = $data['id'] ?? 0;
+        $nombre = trim($data['nombre'] ?? '');
+        $descripcion = trim($data['descripcion'] ?? '');
+        if (empty($nombre) || $id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
+            break;
+        }
+        if (updatePermiso($pdo, $id, $nombre, $descripcion)) {
+            echo json_encode(['success' => true, 'message' => 'Permiso actualizado exitosamente']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Error al actualizar el permiso']);
+        }
+        break;
+
+    case 'delete_permiso':
+        $id = $data['id'] ?? 0;
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID inválido']);
+            break;
+        }
+        if (deletePermiso($pdo, $id)) {
+            echo json_encode(['success' => true, 'message' => 'Permiso eliminado exitosamente']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Error al eliminar el permiso']);
+        }
+        break;
+
+    case 'get_permiso':
+        $id = $data['id'] ?? 0;
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID inválido']);
+            break;
+        }
+        $permiso = getPermisoById($pdo, $id);
+        if ($permiso) {
+            echo json_encode(['success' => true, 'data' => $permiso]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Permiso no encontrado']);
+        }
+        break;
+
+    case 'search_permisos':
+        $search = trim($data['search'] ?? '');
+        $permisos = getAllPermisos($pdo);
+        if (!empty($search)) {
+            $permisos = array_filter($permisos, function($permiso) use ($search) {
+                return stripos($permiso['nombre'], $search) !== false ||
+                       stripos($permiso['descripcion'], $search) !== false;
+            });
+        }
+        echo json_encode(['success' => true, 'data' => array_values($permisos)]);
+        break;
+
+    // ----------- USUARIOS ---------------
     case 'create_user':
         $nombre = trim($data['nombre'] ?? '');
         $apellido = trim($data['apellido'] ?? '');
@@ -43,13 +334,35 @@ switch ($action) {
         $id_rol = $data['id_rol'] ?? '';
         $password = $data['password'] ?? '';
 
-        if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
-        if (!$email) { echo json_encode(['success' => false, 'message' => 'Falta email']); break; }
-        if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
-        if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
-        if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
-        if (!$password) { echo json_encode(['success' => false, 'message' => 'Falta password']); break; }
-        if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
+       if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
+       if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $nombre)) {
+        echo json_encode(['success' => false, 'message' => 'El nombre solo debe contener letras y espacios']); break;
+    }
+
+    if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
+    if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $apellido)) {
+        echo json_encode(['success' => false, 'message' => 'El apellido solo debe contener letras y espacios']); break;
+    }
+
+    if (!$email) { echo json_encode(['success' => false, 'message' => 'Falta email']); break; }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => 'Email inválido']); break;
+    }
+
+    if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
+
+    if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
+    if (!preg_match('/^[0-9]+$/', $documento)) {
+        echo json_encode(['success' => false, 'message' => 'El documento debe contener solo números']); break;
+    }
+
+    if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
+    if (!is_numeric($id_rol) || intval($id_rol) <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Rol inválido']); break;
+    }
+
+    if (!$password) { echo json_encode(['success' => false, 'message' => 'Falta password']); break; }
+
 
         $estado = 'activo'; // Fuerza el estado a 'activo' al crear
 
@@ -72,7 +385,6 @@ switch ($action) {
         }
         break;
 
-    // --- Actualizar usuario ---
     case 'update_user':
         $id_usuario = $data['id_usuario'] ?? '';
         $nombre = trim($data['nombre'] ?? '');
@@ -85,14 +397,39 @@ switch ($action) {
         $estado = $data['estado'] ?? '';
         $password = $data['password'] ?? '';
 
-        if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
-        if (!$email) { echo json_encode(['success' => false, 'message' => 'Falta email']); break; }
-        if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
-        if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
-        if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
-        if (!$estado) { echo json_encode(['success' => false, 'message' => 'Falta estado']); break; }
-        if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
+       if (!$id_usuario) { echo json_encode(['success' => false, 'message' => 'Falta id de usuario']); break; }
 
+    if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
+    if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $nombre)) {
+        echo json_encode(['success' => false, 'message' => 'El nombre solo debe contener letras y espacios']); break;
+    }
+
+    if (!$apellido) { echo json_encode(['success' => false, 'message' => 'Falta apellido']); break; }
+    if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $apellido)) {
+        echo json_encode(['success' => false, 'message' => 'El apellido solo debe contener letras y espacios']); break;
+    }
+
+    if (!$email) { echo json_encode(['success' => false, 'message' => 'Falta email']); break; }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => 'Email inválido']); break;
+    }
+
+    if (!$tipo_documento) { echo json_encode(['success' => false, 'message' => 'Falta tipo de documento']); break; }
+
+    if (!$documento) { echo json_encode(['success' => false, 'message' => 'Falta número de documento']); break; }
+    if (!preg_match('/^[0-9]+$/', $documento)) {
+        echo json_encode(['success' => false, 'message' => 'El documento debe contener solo números']); break;
+    }
+
+    if (!$id_rol) { echo json_encode(['success' => false, 'message' => 'Falta rol']); break; }
+    if (!is_numeric($id_rol) || intval($id_rol) <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Rol inválido']); break;
+    }
+
+    if (!$estado) { echo json_encode(['success' => false, 'message' => 'Falta estado']); break; }
+    if (!in_array(strtolower($estado), ['activo', 'inactivo'])) {
+        echo json_encode(['success' => false, 'message' => 'Estado inválido']); break;
+    }
         // Verificar duplicados en otros usuarios
         $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE (email = ? OR documento = ?) AND id_usuario != ?");
         $stmtCheck->execute([$email, $documento, $id_usuario]);
@@ -102,6 +439,7 @@ switch ($action) {
         }
 
         try {
+            error_log("Datos recibidos: nombre='$nombre', apellido='$apellido', correo='$email', tipo_documento='$tipo_documento', documento='$documento', id_rol='$id_rol', estado='$estado', password='$password'");
             if ($password) {
                 $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
                 $stmt = $pdo->prepare("UPDATE usuarios SET nombre=?, apellido=?, email=?, telefono=?, tipo_documento=?, documento=?, id_rol=?, estado=?, password=? WHERE id_usuario=?");
@@ -117,262 +455,222 @@ switch ($action) {
         }
         break;
 
-    // --- Crear o actualizar rol ---
-    case 'create_role':
-    case 'update_role':
-        $id_rol = $data['id'] ?? null;
-        $nombre_rol = trim($data['nombre'] ?? '');
-        $descripcion = trim($data['descripcion'] ?? '');
-        $permisos = $data['permisos'] ?? [];
+    case 'delete_user':
+        $id_usuario = $data['id_usuario'] ?? '';
 
-        // Validaciones
-        if (!$nombre_rol || strlen($nombre_rol) < 3 || strlen($nombre_rol) > 50) {
-            echo json_encode(['success' => false, 'message' => 'El nombre del rol debe tener entre 3 y 50 caracteres.']);
-            break;
-        }
-        if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/', $nombre_rol)) {
-            echo json_encode(['success' => false, 'message' => 'El nombre del rol solo puede contener letras y espacios.']);
-            break;
-        }
-        if (strlen($descripcion) > 255) {
-            echo json_encode(['success' => false, 'message' => 'La descripción no puede superar los 255 caracteres.']);
-            break;
-        }
-        if (!is_array($permisos) || count($permisos) == 0) {
-            echo json_encode(['success' => false, 'message' => 'Debe seleccionar al menos un permiso para el rol.']);
-            break;
-        }
-
-        // Verificar duplicado nombre rol (cuando es creación o actualización)
-        if ($action == 'create_role') {
-            $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM roles WHERE nombre_rol = ?");
-            $stmtCheck->execute([$nombre_rol]);
-        } else {
-            $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM roles WHERE nombre_rol = ? AND id_rol != ?");
-            $stmtCheck->execute([$nombre_rol, $id_rol]);
-        }
-        if ($stmtCheck->fetchColumn() > 0) {
-            echo json_encode(['success' => false, 'message' => 'El nombre del rol ya está registrado.']);
+        if (!$id_usuario) {
+            echo json_encode(['success' => false, 'message' => 'ID de usuario no especificado.']);
             break;
         }
 
         try {
-            if ($action == 'create_role') {
-                $stmt = $pdo->prepare("INSERT INTO roles (nombre_rol, descripcion) VALUES (?, ?)");
-                $stmt->execute([$nombre_rol, $descripcion]);
-                $newRoleId = $pdo->lastInsertId();
+            $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id_usuario = ?");
+            $stmt->execute([$id_usuario]);
+            echo json_encode(['success' => true, 'message' => 'Usuario eliminado exitosamente.']);
+        } catch (PDOException $e) {
+            error_log("Error eliminando usuario: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Error al eliminar usuario.']);
+        }
+        break;
+
+    case 'list_users':
+        $search = $data['search'] ?? '';
+        $searchType = $data['searchType'] ?? ''; // Nuevo: tipo de búsqueda ('nombre', 'documento' o vacío)
+        $page = max(1, intval($data['page'] ?? 1));
+        $limit = 10;
+        $offset = ($page - 1) * $limit;
+
+        $params = [];
+        $where = "";
+
+        if ($search) {
+            if ($searchType === 'nombre') {
+                $where = "WHERE nombre LIKE ?";
+                $params = ["%$search%"];
+            } elseif ($searchType === 'documento') {
+                $where = "WHERE documento LIKE ?";
+                $params = ["%$search%"];
             } else {
-                $stmt = $pdo->prepare("UPDATE roles SET nombre_rol = ?, descripcion = ? WHERE id_rol = ?");
-                $stmt->execute([$nombre_rol, $descripcion, $id_rol]);
-                $newRoleId = $id_rol;
+                // Si no se especifica tipo, buscar en ambos
+                $where = "WHERE nombre LIKE ? OR documento LIKE ?";
+                $params = ["%$search%", "%$search%"];
             }
-
-            // Actualizar permisos del rol: Primero eliminar los permisos actuales
-            $stmtDel = $pdo->prepare("DELETE FROM rol_permiso WHERE id_rol = ?");
-            $stmtDel->execute([$newRoleId]);
-
-            // Insertar los permisos nuevos
-            $stmtInsert = $pdo->prepare("INSERT INTO rol_permiso (id_rol, id_permiso) VALUES (?, ?)");
-            foreach ($permisos as $permisoId) {
-                $stmtInsert->execute([$newRoleId, $permisoId]);
-            }
-
-            echo json_encode(['success' => true, 'message' => ($action == 'create_role' ? 'Rol creado exitosamente.' : 'Rol actualizado exitosamente.')]);
-
-        } catch (PDOException $e) {
-            error_log("Error en roles: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al guardar el rol.']);
         }
+
+        $query = "SELECT * FROM usuarios $where ORDER BY id_usuario DESC LIMIT $limit OFFSET $offset";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute($params);
+        $usuarios = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM usuarios $where");
+        $stmtCount->execute($params);
+        $total = $stmtCount->fetchColumn();
+
+        echo json_encode([
+            'success' => true,
+            'data' => $usuarios,
+            'total' => $total,
+            'page' => $page,
+            'limit' => $limit
+        ]);
         break;
 
-    // --- Obtener rol con permisos para editar ---
-    case 'get_role':
-        $id_rol = $data['id'] ?? '';
-        if (!$id_rol) {
-            echo json_encode(['success' => false, 'message' => 'ID de rol no especificado.']);
+    //Registrar usuario cliente desde formulario en el index.
+    case 'register_client_user':
+    $nombre = trim($data['nombre'] ?? '');
+    $apellido = trim($data['apellido'] ?? '');
+    $email = trim($data['email'] ?? '');
+    $telefono = trim($data['telefono'] ?? '');
+    $tipo_documento = $data['tipo_documento'] ?? '';
+    $documento = trim($data['documento'] ?? '');
+    $password = $data['password'] ?? '';
+    $estado = 'activo';  // Default para clientes registrados desde formulario
+
+    if (!$nombre || !$apellido || !$email || !$tipo_documento || !$documento || !$password) {
+        echo json_encode(['success' => false, 'message' => 'Faltan datos obligatorios']);
+        break;
+    }
+
+    try {
+        // Obtener el id del rol Cliente
+        $stmtRol = $pdo->prepare("SELECT id_rol FROM roles WHERE nombre_rol = 'Cliente' LIMIT 1");
+        $stmtRol->execute();
+        $id_rol_cliente = $stmtRol->fetchColumn();
+
+        if (!$id_rol_cliente) {
+            echo json_encode(['success' => false, 'message' => 'No existe el rol Cliente en la base de datos']);
             break;
         }
-        try {
-            $stmt = $pdo->prepare("SELECT id_rol, nombre_rol, descripcion FROM roles WHERE id_rol = ?");
-            $stmt->execute([$id_rol]);
-            $rol = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$rol) {
-                echo json_encode(['success' => false, 'message' => 'Rol no encontrado.']);
-                break;
-            }
-            $stmtPermisos = $pdo->prepare("SELECT id_permiso FROM rol_permiso WHERE id_rol = ?");
-            $stmtPermisos->execute([$id_rol]);
-            $permisos = $stmtPermisos->fetchAll(PDO::FETCH_COLUMN);
 
-            echo json_encode(['success' => true, 'data' => [
-                'id_rol' => $rol['id_rol'],
-                'nombre_rol' => $rol['nombre_rol'],
-                'descripcion' => $rol['descripcion'],
-                'permisos' => $permisos
-            ]]);
-        } catch (PDOException $e) {
-            error_log("Error get_role: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al obtener datos del rol.']);
-        }
-        break;
-
-    // --- Eliminar rol ---
-    case 'delete_role':
-        $id_rol = $data['id'] ?? '';
-        if (!$id_rol) {
-            echo json_encode(['success' => false, 'message' => 'ID de rol no especificado.']);
+        // Verificar duplicados
+        $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE email = ? OR documento = ?");
+        $stmtCheck->execute([$email, $documento]);
+        if ($stmtCheck->fetchColumn() > 0) {
+            echo json_encode(['success' => false, 'message' => 'Email o documento ya registrado']);
             break;
         }
-        try {
-            // Eliminar permisos vinculados primero
-            $stmtDel = $pdo->prepare("DELETE FROM rol_permiso WHERE id_rol = ?");
-            $stmtDel->execute([$id_rol]);
-            // Eliminar rol
-            $stmt = $pdo->prepare("DELETE FROM roles WHERE id_rol = ?");
-            $stmt->execute([$id_rol]);
-            echo json_encode(['success' => true, 'message' => 'Rol eliminado exitosamente.']);
-        } catch (PDOException $e) {
-            error_log("Error delete_role: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al eliminar el rol.']);
-        }
+
+        // Hash de la contraseña
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+
+        // Insertar nuevo usuario con rol Cliente
+        $stmt = $pdo->prepare("INSERT INTO usuarios (nombre, apellido, email, telefono, tipo_documento, documento, id_rol, estado, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$nombre, $apellido, $email, $telefono, $tipo_documento, $documento, $id_rol_cliente, $estado, $hashedPassword]);
+
+        echo json_encode(['success' => true, 'message' => 'Registro exitoso. Ahora puedes iniciar sesión.']);
+
+    } catch (PDOException $e) {
+        error_log("Error registrando usuario cliente: " . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Error al registrar usuario']);
+    }
         break;
 
-    // --- Crear o actualizar permiso ---
-    case 'create_permiso':
-    case 'update_permiso':
-        $id_permiso = $data['id'] ?? null;
+
+    // ----------- SERVICIOS ---------------
+    case 'create_service':
+    $nombre = trim($data['nombre'] ?? '');
+    $descripcion = trim($data['descripcion'] ?? '');
+    $precio = floatval($data['precio'] ?? 0);
+    $duracion = floatval($data['duracion'] ?? 0);
+    $categoria = trim($data['categoria'] ?? '');
+    $estado = 'activo'; // Forzar que el estado sea 'activo' al crear
+
+    if (preg_match('/[0-9]/', $nombre)) {
+    echo json_encode(['success' => false, 'message' => 'El nombre no puede contener números']);
+    break;
+    }
+    try {
+        $stmt = $pdo->prepare("INSERT INTO servicios (nombre, descripcion, precio, duracion, categoria, estado) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$nombre, $descripcion, $precio, $duracion, $categoria, $estado]);
+        echo json_encode(['success' => true, 'message' => 'Servicio creado exitosamente']);
+    } catch (PDOException $e) {
+        error_log("Error creando servicio: " . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Error al crear servicio']);
+    }
+    break;
+
+
+    case 'update_service':
+        $id = $data['id'] ?? 0;
         $nombre = trim($data['nombre'] ?? '');
         $descripcion = trim($data['descripcion'] ?? '');
-
-        // Validaciones
-        if (!$nombre || strlen($nombre) < 3 || strlen($nombre) > 50) {
-            echo json_encode(['success' => false, 'message' => 'El nombre del permiso debe tener entre 3 y 50 caracteres.']);
-            break;
-        }
-        if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/', $nombre)) {
-            echo json_encode(['success' => false, 'message' => 'El nombre del permiso solo puede contener letras y espacios.']);
-            break;
-        }
-        if (strlen($descripcion) > 255) {
-            echo json_encode(['success' => false, 'message' => 'La descripción no puede superar los 255 caracteres.']);
+        $precio = floatval($data['precio'] ?? 0);
+        $duracion = floatval($data['duracion'] ?? 0);
+        $categoria = trim($data['categoria'] ?? '');
+        $estado = $data['estado'] ?? 'activo';
+        
+        if ($id <= 0 || empty($nombre)) {
+            echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
             break;
         }
 
-        // Verificar duplicado nombre permiso
-        if ($action == 'create_permiso') {
-            $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM permisos WHERE nombre = ?");
-            $stmtCheck->execute([$nombre]);
-        } else {
-            $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM permisos WHERE nombre = ? AND id != ?");
-            $stmtCheck->execute([$nombre, $id_permiso]);
-        }
-        if ($stmtCheck->fetchColumn() > 0) {
-            echo json_encode(['success' => false, 'message' => 'El nombre del permiso ya está registrado.']);
-            break;
-        }
-
+        // Validación: no permitir números en el nombre
+        if (preg_match('/[0-9]/', $nombre)) {
+            echo json_encode(['success' => false, 'message' => 'El nombre no puede contener números']);
+        break;
+ }
         try {
-            if ($action == 'create_permiso') {
-                $stmt = $pdo->prepare("INSERT INTO permisos (nombre, descripcion) VALUES (?, ?)");
-                $stmt->execute([$nombre, $descripcion]);
-            } else {
-                $stmt = $pdo->prepare("UPDATE permisos SET nombre = ?, descripcion = ? WHERE id = ?");
-                $stmt->execute([$nombre, $descripcion, $id_permiso]);
-            }
-            echo json_encode(['success' => true, 'message' => ($action == 'create_permiso' ? 'Permiso creado exitosamente.' : 'Permiso actualizado exitosamente.')]);
+            $stmt = $pdo->prepare("UPDATE servicios SET nombre=?, descripcion=?, precio=?, duracion=?, categoria=?, estado=? WHERE id_servicio=?");
+            $stmt->execute([$nombre, $descripcion, $precio, $duracion, $categoria, $estado, $id]);
+            echo json_encode(['success' => true, 'message' => 'Servicio actualizado exitosamente']);
         } catch (PDOException $e) {
-            error_log("Error en permisos: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al guardar el permiso.']);
+            error_log("Error actualizando servicio: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Error al actualizar servicio']);
         }
         break;
 
-    // --- Obtener permiso para editar ---
-    case 'get_permiso':
-        $id_permiso = $data['id'] ?? '';
-        if (!$id_permiso) {
-            echo json_encode(['success' => false, 'message' => 'ID de permiso no especificado.']);
+    case 'delete_service':
+        $id = $data['id'] ?? 0;
+        if ($id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'ID inválido']);
             break;
         }
         try {
-            $stmt = $pdo->prepare("SELECT id, nombre, descripcion FROM permisos WHERE id = ?");
-            $stmt->execute([$id_permiso]);
-            $permiso = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$permiso) {
-                echo json_encode(['success' => false, 'message' => 'Permiso no encontrado.']);
-                break;
-            }
-            echo json_encode(['success' => true, 'data' => $permiso]);
+            $stmt = $pdo->prepare("DELETE FROM servicios WHERE id_servicio=?");
+            $stmt->execute([$id]);
+            echo json_encode(['success' => true, 'message' => 'Servicio eliminado exitosamente']);
         } catch (PDOException $e) {
-            error_log("Error get_permiso: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al obtener datos del permiso.']);
+            error_log("Error eliminando servicio: " . $e->getMessage());
+            echo json_encode(['success' => false, 'message' => 'Error al eliminar servicio']);
         }
         break;
 
-    // --- Eliminar permiso ---
-    case 'delete_permiso':
-        $id_permiso = $data['id'] ?? '';
-        if (!$id_permiso) {
-            echo json_encode(['success' => false, 'message' => 'ID de permiso no especificado.']);
-            break;
-        }
-        try {
-            $stmt = $pdo->prepare("DELETE FROM permisos WHERE id = ?");
-            $stmt->execute([$id_permiso]);
-            echo json_encode(['success' => true, 'message' => 'Permiso eliminado exitosamente.']);
-        } catch (PDOException $e) {
-            error_log("Error delete_permiso: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al eliminar el permiso.']);
-        }
-        break;
+    case 'list_services':
+    $search = trim($data['search'] ?? '');
+    $page = max(1, intval($data['page'] ?? 1));
+    $limit = 10;
+    $offset = ($page - 1) * $limit;
 
-    // --- Buscar roles ---
-    case 'search_roles':
-        $search = trim($data['search'] ?? '');
-        try {
-            $sql = "SELECT r.id_rol, r.nombre_rol, r.descripcion, 
-                    JSON_OBJECTAGG(p.nombre, 'activo') AS permisos_json
-                    FROM roles r
-                    LEFT JOIN rol_permiso rp ON r.id_rol = rp.id_rol
-                    LEFT JOIN permisos p ON rp.id_permiso = p.id
-                    WHERE r.nombre_rol LIKE ?
-                    GROUP BY r.id_rol
-                    ORDER BY r.nombre_rol ASC";
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute(["%$search%"]);
-            $roles = [];
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $permisos = [];
-                if ($row['permisos_json']) {
-                    $permisos = json_decode($row['permisos_json'], true);
-                }
-                $roles[] = [
-                    'id_rol' => $row['id_rol'],
-                    'nombre_rol' => $row['nombre_rol'],
-                    'descripcion' => $row['descripcion'],
-                    'permisos' => $permisos
-                ];
-            }
-            echo json_encode(['success' => true, 'data' => $roles]);
-        } catch (PDOException $e) {
-            error_log("Error search_roles: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al buscar roles.']);
-        }
-        break;
+    $params = [];
+    $where = "";
+    if ($search !== '') {
+        $where = "WHERE nombre LIKE ?";
+        $params = ["%$search%"];
+    }
 
-    // --- Buscar permisos ---
-    case 'search_permisos':
-        $search = trim($data['search'] ?? '');
-        try {
-            $stmt = $pdo->prepare("SELECT id, nombre, descripcion FROM permisos WHERE nombre LIKE ? ORDER BY nombre ASC");
-            $stmt->execute(["%$search%"]);
-            $permisos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            echo json_encode(['success' => true, 'data' => $permisos]);
-        } catch (PDOException $e) {
-            error_log("Error search_permisos: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al buscar permisos.']);
-        }
-        break;
+    $query = "SELECT * FROM servicios $where ORDER BY id_servicio DESC LIMIT $limit OFFSET $offset";
+
+    error_log("Consulta servicios: $query con params: " . json_encode($params));
+
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($params);
+    $servicios = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM servicios $where");
+    $stmtCount->execute($params);
+    $total = $stmtCount->fetchColumn();
+
+    echo json_encode([
+        'success' => true,
+        'data' => $servicios,
+        'total' => $total,
+        'page' => $page,
+        'limit' => $limit
+    ]);
+    break;
 
     default:
-        echo json_encode(['success' => false, 'message' => 'Acción no válida.']);
+        echo json_encode(['success' => false, 'message' => 'Acción no válida']);
+        break;
 }
+?>
