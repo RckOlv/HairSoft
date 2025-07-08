@@ -26,7 +26,7 @@ $servicios = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <body>
 <!-- Header -->
 <div class="header">
-    <a href="index.php" class="logo">
+    <a href="dashboard.php" class="logo">
         HairSoft<span class="icon-barber">✂️</span>
     </a>
     <nav class="nav">

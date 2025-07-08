@@ -132,84 +132,167 @@ switch ($action) {
         break;
 
     // ----------- ROLES ----------------
-    case 'create_role':
-        $nombre = trim($data['nombre'] ?? '');
-        $descripcion = trim($data['descripcion'] ?? '');
-        $permisos = $data['permisos'] ?? [];
-        if (empty($nombre)) {
-            echo json_encode(['success' => false, 'message' => 'El nombre del rol es obligatorio']);
-            break;
+ case 'create_role':
+    $nombre = trim($data['nombre'] ?? '');
+    $descripcion = trim($data['descripcion'] ?? '');
+    $permisos = $data['permisos'] ?? [];
+    
+    // Validaciones básicas
+    if (empty($nombre)) {
+        echo json_encode(['success' => false, 'message' => 'El nombre del rol es obligatorio']);
+        break;
+    }
+    
+    if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $nombre)) {
+        echo json_encode(['success' => false, 'message' => 'El nombre solo debe contener letras y espacios']);
+        break;
+    }
+ /*
+    if (empty($descripcion)) {
+        echo json_encode(['success' => false, 'message' => 'La descripción es obligatoria']);
+        break;
+    }
+        */
+
+    // Nueva validación: Requerir al menos un permiso
+    if (empty($permisos) || !is_array($permisos)) {
+        echo json_encode(['success' => false, 'message' => 'Debe seleccionar al menos un permiso']);
+        break;
+    }
+
+    // Verificar si el rol ya existe
+    $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM roles WHERE LOWER(nombre_rol) = LOWER(?)");
+    $stmtCheck->execute([$nombre]);
+    if ($stmtCheck->fetchColumn() > 0) {
+        echo json_encode(['success' => false, 'message' => 'El rol ya existe']);
+        break;
+    }
+
+    try {
+        $pdo->beginTransaction();
+        
+        // Crear el rol
+        $stmt = $pdo->prepare("INSERT INTO roles (nombre_rol, descripcion) VALUES (?, ?)");
+        $stmt->execute([$nombre, $descripcion]);
+        $roleId = $pdo->lastInsertId();
+
+        // Asignar permisos (ahora obligatorio)
+        $stmtPermiso = $pdo->prepare("INSERT INTO rol_permiso (id_rol, id_permiso) VALUES (?, ?)");
+        foreach ($permisos as $permiso) {
+            if (!is_numeric($permiso)) continue; // Validación adicional
+            $stmtPermiso->execute([$roleId, $permiso]);
         }
-         if (!$nombre) { echo json_encode(['success' => false, 'message' => 'Falta nombre']); break; }
-         if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $nombre)) {
-            echo json_encode(['success' => false, 'message' => 'El nombre solo debe contener letras y espacios']); break;
-        }
-
-        if (!$descripcion) { echo json_encode(['success' => false, 'message' => 'Falta descripción']); break; }
-
-        // Verificar si el rol ya existe
-        $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM roles WHERE nombre_rol = ?");
-        $stmtCheck->execute([$nombre]);
-        if ($stmtCheck->fetchColumn() > 0) {
-            echo json_encode(['success' => false, 'message' => 'El rol ya existe']);
-            break;
-        }
-
-        try {
-            $stmt = $pdo->prepare("INSERT INTO roles (nombre_rol, descripcion) VALUES (?, ?)");
-            $stmt->execute([$nombre, $descripcion]);
-            $roleId = $pdo->lastInsertId();
-
-            // Insertar permisos asociados al rol
-            if (!empty($permisos)) {
-                foreach ($permisos as $permiso) {
-                    $stmtPermiso = $pdo->prepare("INSERT INTO roles_permisos (id_rol, id_permiso) VALUES (?, ?)");
-                    $stmtPermiso->execute([$roleId, $permiso]);
-                }
-            }
-
-            echo json_encode(['success' => true, 'message' => 'Rol creado exitosamente']);
-        } catch (PDOException $e) {
-            error_log("Error creando rol: " . $e->getMessage());
-            echo json_encode(['success' => false, 'message' => 'Error al crear el rol']);
-        }
+        
+        $pdo->commit();
+        echo json_encode(['success' => true, 'message' => 'Rol creado exitosamente']);
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        error_log("Error creando rol: " . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Error al crear el rol: ' . $e->getMessage()]);
+    }
+    break;
 
     case 'update_role':
-        $id = $data['id'] ?? 0;
-        $nombre = trim($data['nombre'] ?? '');
-        $descripcion = trim($data['descripcion'] ?? '');
-        $permisos = $data['permisos'] ?? [];
-        if (empty($nombre) || $id <= 0) {
-            echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
-            break;
-        }
-        if (updateRole($pdo, $id, $nombre, $descripcion, $permisos)) {
-            echo json_encode(['success' => true, 'message' => 'Rol actualizado exitosamente']);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Error al actualizar el rol']);
-        }
-        break;
+    $id = $data['id'] ?? 0;
+    $nombre = trim($data['nombre'] ?? '');
+    $descripcion = trim($data['descripcion'] ?? ''); // Opcional
+    $permisos = $data['permisos'] ?? [];
 
-    case 'delete_role':
-        $id = $data['id'] ?? 0;
-        if ($id <= 0) {
-            echo json_encode(['success' => false, 'message' => 'ID inválido']);
-            break;
+    // Validaciones básicas
+    if ($id <= 0 || empty($nombre)) {
+        echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
+        break;
+    }
+
+    // Validación de formato del nombre
+    if (!preg_match('/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/u', $nombre)) {
+        echo json_encode(['success' => false, 'message' => 'El nombre solo debe contener letras y espacios']);
+        break;
+    }
+
+    // ¡VALIDACIÓN CLAVE! - Permisos obligatorios
+    if (empty($permisos) || !is_array($permisos)) {
+        echo json_encode(['success' => false, 'message' => 'Debe seleccionar al menos un permiso']);
+        break;
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        // 1. Actualizar datos básicos del rol
+        $stmt = $pdo->prepare("UPDATE roles SET nombre_rol = ?, descripcion = ? WHERE id_rol = ?");
+        $stmt->execute([$nombre, empty($descripcion) ? null : $descripcion, $id]);
+
+        // 2. Eliminar todos los permisos actuales
+        $stmtDel = $pdo->prepare("DELETE FROM rol_permiso WHERE id_rol = ?");
+        $stmtDel->execute([$id]);
+
+        // 3. Insertar los nuevos permisos
+        $stmtInsert = $pdo->prepare("INSERT INTO rol_permiso (id_rol, id_permiso) VALUES (?, ?)");
+        foreach ($permisos as $permiso) {
+            if (!is_numeric($permiso)) continue; // Filtro de seguridad
+            $stmtInsert->execute([$id, $permiso]);
         }
-        // Verificar si el rol tiene usuarios asignados
+
+        $pdo->commit();
+        echo json_encode(['success' => true, 'message' => 'Rol actualizado exitosamente']);
+
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        error_log("Error actualizando rol: " . $e->getMessage());
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Error al actualizar el rol',
+            'error' => $e->getMessage() // Remover en producción
+        ]);
+    }
+    break;
+    case 'delete_role':
+    $id = $data['id'] ?? 0;
+    
+    if ($id <= 0) {
+        echo json_encode(['success' => false, 'message' => 'ID de rol inválido']);
+        break;
+    }
+
+    try {
+        $pdo->beginTransaction();
+        
+        // 1. Verificar si el rol tiene usuarios asignados
         $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE id_rol = ?");
         $stmtCheck->execute([$id]);
         if ($stmtCheck->fetchColumn() > 0) {
-            echo json_encode(['success' => false, 'message' => 'No se puede eliminar el rol porque tiene usuarios asignados.']);
+            echo json_encode(['success' => false, 'message' => 'No se puede eliminar: existen usuarios con este rol']);
+            $pdo->rollBack();
             break;
         }
-        if (deleteRole($pdo, $id)) {
+
+        // 2. Eliminar primero los permisos asociados
+        $stmtDelPermisos = $pdo->prepare("DELETE FROM rol_permiso WHERE id_rol = ?");
+        $stmtDelPermisos->execute([$id]);
+        
+        // 3. Eliminar el rol
+        $stmtDelRol = $pdo->prepare("DELETE FROM roles WHERE id_rol = ?");
+        $stmtDelRol->execute([$id]);
+        
+        $pdo->commit();
+        
+        if ($stmtDelRol->rowCount() > 0) {
             echo json_encode(['success' => true, 'message' => 'Rol eliminado exitosamente']);
         } else {
-            echo json_encode(['success' => false, 'message' => 'Error al eliminar el rol.']);
+            echo json_encode(['success' => false, 'message' => 'El rol no existe o ya fue eliminado']);
         }
-        break;
-
+        
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        error_log("Error eliminando rol: " . $e->getMessage());
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Error al eliminar el rol',
+            'error' => $e->getMessage() // Remover en producción
+        ]);
+    }
+    break;
     case 'get_role':
         $id = $data['id'] ?? 0;
         if ($id <= 0) {

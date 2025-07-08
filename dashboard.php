@@ -136,7 +136,7 @@ function obtenerIconoActividad($tipo) {
             <?php endif; ?>
             
             <?php if (hasPermission($pdo, $user_id, 'productos_ver')): ?>
-                <a href="productos.php">Productos</a>
+                <a href="#">Productos</a>
             <?php endif; ?>
         </nav>
         <div class="user-info">
@@ -210,7 +210,7 @@ function obtenerIconoActividad($tipo) {
             <?php endif; ?>
 
             <?php if (hasPermission($pdo, $user_id, 'productos_ver')): ?>
-                <a href="productos.php" class="action-card">
+                <a href="#" class="action-card">
                     <span class="action-icon">💄</span>
                     <h3 class="action-title">Gestión de Productos</h3>
                     <p class="action-description">Controla inventario y productos de venta</p>
